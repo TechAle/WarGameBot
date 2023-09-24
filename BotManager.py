@@ -34,3 +34,7 @@ class BotManager:
             thread.start()
         for thread in threads:
             thread.join()
+
+    def kill(self):
+        for bot in self.Bots:
+            bot.kill()

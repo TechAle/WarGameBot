@@ -6,11 +6,13 @@ from selenium.webdriver.support.wait import WebDriverWait
 import socket
 import threading
 from bs4 import BeautifulSoup
+from TooManyRetriesException import tooManyRetriesException
+from selenium.webdriver.firefox.options import Options
 
 
 class Bot:
     WAITING = True
-    DEBUG = True
+    DEBUG = False
     def __init__(self, email, password, first):
         self.wait = None
         self.socket = None
@@ -21,7 +23,10 @@ class Bot:
 
     def setup(self):
         # Open the browser, Open https://www.warzone.com/LogIn, enter the email and password, click on the login button
-        self.driver = webdriver.Firefox()
+        options = Options()
+        options.set_preference("media.volume_scale", "0.0")
+        options.headless = True
+        self.driver = webdriver.Firefox(options=options)
         self.driver.get("https://www.warzone.com/LogIn")
         # use find_element that has by has parameters By.ID and "email"
         self.driver.find_element(By.ID, "EmailBox").send_keys(self.email)
@@ -68,7 +73,7 @@ class Bot:
     def start(self):
         while self.WAITING:
             time.sleep(1)
-        b = True
+        b = False
         while True:
             if Bot.DEBUG:
                 print("Starting")
@@ -159,6 +164,7 @@ class Bot:
         # Start the game
         if Bot.DEBUG:
             print("Start game button")
+        time.sleep(5)
         self.waitToClick('//*[@id="ujs_StartGameBtn_btn"]')
 
         # Wait for xpath //*[@id="ujs_SurrenderBtn_btn"] to exist and click it
@@ -203,9 +209,13 @@ class Bot:
                 count += 1
                 time.sleep(1)
                 if count > 10:
-                    raise Exception("Can't click on the element " + XPATH)
+                    raise tooManyRetriesException("Can't click on the element " + XPATH)
                 else:
                     print("Failed time " + XPATH)
+
+    def kill(self):
+        self.socket.quit()
+        self.driver.quit()
 
 
 
