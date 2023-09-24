@@ -9,9 +9,12 @@ from bs4 import BeautifulSoup
 
 
 class Bot:
+    WAITING = True
+    DEBUG = True
     def __init__(self, email, password, first):
         self.wait = None
         self.socket = None
+        self.clients = []
         self.server = first
         self.email = email
         self.password = password
@@ -60,49 +63,102 @@ class Bot:
             client, address = self.socket.accept()
             self.clients.append(client)
             print("New client connected")
+        Bot.WAITING = False
 
     def start(self):
+        while self.WAITING:
+            time.sleep(1)
+        b = True
         while True:
-            whatToDo = None
+            if Bot.DEBUG:
+                print("Starting")
             # If we are the server we have to manage everyone first
             if self.server:
-                whatToDo = "create"
+                whatToDo = "create" if b else "join"
             else:
-                whatToDo = "join"
+                whatToDo = "join" if b else "create"
+            b = not b
 
             if whatToDo == "join":
                 # Wait for a message from the server
-                message = self.socket.recv(1024).decode()
+                message = None
+                if self.server:
+                    if Bot.DEBUG:
+                        print("Joining server")
+                    for client in self.clients:
+                        message = client.recv(1024).decode()
+                    for client in self.clients:
+                        client.send(message.encode())
+                else:
+                    if Bot.DEBUG:
+                        print("Joining client")
+                    message = self.socket.recv(1024).decode()
+
                 self.joinGame(message)
             elif whatToDo == "create":
                 self.createGame()
 
     def joinGame(self, url):
+        if Bot.DEBUG:
+            print("Joining game clients")
         self.driver.get(url)
         # Wait for element to exist //*[@id="ujs_JoinBtn_btn"] and then click it
+        if Bot.DEBUG:
+            print("Waiting for join button")
         self.wait.until(lambda driver: driver.find_element(By.XPATH, '//*[@id="ujs_JoinBtn_btn"]'))
         self.driver.find_element(By.XPATH, '//*[@id="ujs_JoinBtn_btn"]').click()
-        # Say to the server that we are ready
-        self.socket.send("1".encode())
+        if Bot.DEBUG:
+            print("Ready state")
+        if self.server:
+            self.clients[0].recv(1024)
+            for client in self.clients:
+                client.send("1".encode())
+        else:
+            self.socket.send("1".encode())
+        if Bot.DEBUG:
+            print("Finish button waiting")
         # Wait for element //*[@id="ujs_FinishVersusAIBtn_btn"] to exist
         self.wait.until(lambda driver: driver.find_element(By.XPATH, '//*[@id="ujs_FinishVersusAIBtn_btn"]'))
+        if Bot.DEBUG:
+            print("Surrender button present joining")
 
     def createGame(self):
+        if Bot.DEBUG:
+            print("Creating game")
         self.driver.get("https://www.warzone.com/MultiPlayer?CreateGame=1")
+        if Bot.DEBUG:
+            print("Invite via code")
         self.waitToClick("//*[@id='ujs_PlayersModeCode_toggle']")
+        if Bot.DEBUG:
+            print("Waiting code to load")
         self.waitToClick('//*[@id="ujs_PlayersCodeBox_input"]')
+        if Bot.DEBUG:
+            print("Waiting create game button")
         self.waitToClick('//*[@id="ujs_CreateGameBtn_btn"]')
         # Wait for url to change
         self.wait.until(lambda driver: driver.current_url != "https://www.warzone.com/MultiPlayer?CreateGame=1")
         # Get the url
         url = self.driver.current_url
-        # Send the url to the clients
-        for client in self.clients:
-            client.send(url.encode())
-        # Wait for the clients to be ready
-        for client in self.clients:
-            client.recv(1024).decode()
+
+        if self.server:
+            # Send the url to the clients
+            for client in self.clients:
+                client.send(url.encode())
+            # Wait for the clients to be ready
+            for client in self.clients:
+                client.recv(1024)
+        else:
+            self.socket.send(url.encode())
+            if Bot.DEBUG:
+                print("first waiting")
+            self.socket.recv(1024)
+            self.socket.send(b"1")
+            if Bot.DEBUG:
+                print("second waiting")
+            self.socket.recv(1024)
         # Start the game
+        if Bot.DEBUG:
+            print("Start game button")
         self.waitToClick('//*[@id="ujs_StartGameBtn_btn"]')
 
         # Wait for xpath //*[@id="ujs_SurrenderBtn_btn"] to exist and click it
@@ -123,7 +179,6 @@ class Bot:
                     print("Failed time " + '//*[@id="ujs_SurrenderBtn_btn"]')
         # Wait for the element //*[@id="ujs_ModalContainer"] to change
         self.wait.until(lambda driver: driver.find_element(By.XPATH, '//*[@id="ujs_ModalContainer"]').text != "")
-        b = 0
         test = BeautifulSoup(self.driver.page_source, features="html.parser")
         codeDiv = str(test.find("div", {"id": "ujs_ModalContainer"}))
         codeDiv = codeDiv[:codeDiv[:codeDiv.index("Yes,")].rindex('<')]
@@ -131,6 +186,8 @@ class Bot:
         id = codeDiv[:codeDiv.index("btn") + 3]
         self.driver.execute_script(f'document.getElementById("{id}").click()')
         self.wait.until(lambda driver: driver.find_element(By.XPATH, '//*[@id="ujs_FinishVersusAIBtn_btn"]'))
+        if Bot.DEBUG:
+            print("Finish button present create")
 
 
     def waitToClick(self, XPATH):
